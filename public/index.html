@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Your membership barcode.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="./style.css">
+  <title>Rec Code</title>
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header>
+      <h1>Rec Code</h1>
+      <button id="settings-button" class="text-button">Settings</button>
+    </header>
+    <main>
+      <section aria-labelledby="institution-name">
+        <h2 id="institution-name">Texas A&amp;M</h2>
+        <p id="status-label" class="caption" role="status">Not connected</p>
+        <div class="barcode-area">
+          <div id="barcode-slot" hidden></div>
+          <div id="empty-state">
+            <p id="empty-message">Sign in once to save your login on this device.</p>
+          </div>
+          <p id="loading-state" role="status" hidden>Getting your barcode…</p>
+        </div>
+        <p id="updated-label" class="caption"></p>
+      </section>
+      <p id="notice" role="status" hidden></p>
+      <div class="actions">
+        <button id="connect-button" class="primary">Connect your login</button>
+        <button id="refresh-button" hidden>Refresh barcode</button>
+        <button id="scan-button" hidden>Scan view</button>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="login-dialog" aria-labelledby="login-title">
+    <div class="dialog-heading">
+      <h2 id="login-title">Connect Texas A&amp;M</h2>
+      <button class="close-button" data-close="login-dialog" aria-label="Close login">×</button>
+    </div>
+    <p>Sign in, then paste the finished page’s address below.</p>
+    <a id="sso-link" class="button" href="https://innosoftfusiongo.com/sso/login/login-start.php?id=107" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open institution SSO</a>
+    <form id="login-form">
+      <label for="token-input">Completed SSO URL or Fusion token</label>
+      <textarea id="token-input" rows="3" placeholder="Paste here" autocomplete="off" autocapitalize="off" spellcheck="false" required></textarea>
+      <p id="login-error" role="alert" hidden></p>
+      <button id="import-button" class="primary" type="submit">Save login</button>
+    </form>
+    <details>
+      <summary>Import a saved login</summary>
+      <button id="token-file-button" class="text-button" type="button">Choose Python token file</button>
+      <input id="token-file" type="file" accept="application/json,.json" hidden>
+    </details>
+  </dialog>
+
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <div class="dialog-heading">
+      <h2 id="settings-title">Settings</h2>
+      <button class="close-button" data-close="settings-dialog" aria-label="Close settings">×</button>
+    </div>
+    <form id="settings-form">
+      <label for="school-input">Institution ID</label>
+      <input id="school-input" inputmode="numeric" pattern="[0-9]{1,6}" maxlength="6" required>
+      <p class="caption">107 is Texas A&amp;M.</p>
+      <label for="name-input">Institution name (optional)</label>
+      <input id="name-input" maxlength="60" placeholder="Your institution">
+      <p id="settings-error" role="alert" hidden></p>
+      <button class="primary" type="submit">Save settings</button>
+    </form>
+    <div class="settings-actions">
+      <button id="renew-button" class="text-button">Renew login</button>
+      <button id="forget-button" class="text-button">Forget saved login</button>
+      <button id="download-button" class="text-button" hidden>Save barcode image</button>
+      <button id="install-button" class="text-button">Add to Home Screen</button>
+    </div>
+    <p id="install-help" class="caption" hidden>On iPhone, open in Safari and choose Share → Add to Home Screen. On Android or desktop, choose Install app in your browser’s menu.</p>
+  </dialog>
+
+  <dialog id="scan-dialog" aria-label="Barcode scan view">
+    <button class="close-button" data-close="scan-dialog" aria-label="Close scan view">×</button>
+    <div class="scan-content">
+      <h2 id="scan-institution"></h2>
+      <div id="scan-barcode"></div>
+    </div>
+  </dialog>
+  <noscript><p>Enable JavaScript to use your barcode.</p></noscript>
+</body>
+</html>

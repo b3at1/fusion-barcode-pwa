@@ -1,0 +1,105 @@
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #000;
+  background: #fff;
+  color-scheme: light;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+[hidden] { display: none !important; }
+h1, h2, p { margin: 0; overflow-wrap: anywhere; }
+h1 { font-size: 20px; }
+h2 { font-size: 22px; font-weight: 600; }
+p { line-height: 1.5; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button, a, summary { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid #000; outline-offset: 3px; }
+
+.app-shell {
+  width: 100%;
+  max-width: 480px;
+  min-height: 100svh;
+  margin: auto;
+  padding: max(16px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+}
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+main { flex: 1; display: flex; flex-direction: column; justify-content: center; padding-block: 24px 60px; }
+section { text-align: center; }
+.caption { font-size: 13px; margin-top: 8px; }
+.barcode-area { min-height: clamp(160px, 30svh, 240px); display: grid; align-items: center; margin-block: 16px; }
+#empty-state p { font-size: 14px; max-width: 260px; margin: 8px auto 0; }
+#barcode-slot, #scan-barcode { width: 100%; min-width: 0; }
+#barcode-slot svg, #scan-barcode svg { display: block; width: 100%; height: auto; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.actions button { flex: 1 1 130px; }
+#notice, [role="alert"] { margin-top: 16px; font-size: 14px; }
+
+button, .button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 1px solid #000;
+  border-radius: 6px;
+  background: #fff;
+  color: #000;
+  text-decoration: none;
+  cursor: pointer;
+}
+button:disabled { opacity: .5; cursor: wait; }
+.primary { font-weight: 600; }
+.text-button { border: 0; padding-inline: 8px; text-decoration: underline; text-underline-offset: 3px; }
+.close-button { flex-shrink: 0; width: 48px; padding: 0; border: 0; font-size: 28px; }
+
+dialog {
+  width: calc(100% - 24px);
+  max-width: 440px;
+  max-height: calc(100dvh - 24px);
+  padding: 20px;
+  border: 1px solid #000;
+  border-radius: 8px;
+  background: #fff;
+  color: #000;
+  overflow: auto;
+}
+dialog::backdrop { background: #0006; }
+.dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+.dialog-heading h2 { min-width: 0; font-size: 20px; }
+dialog > .button { width: 100%; margin-top: 16px; }
+label { display: block; margin: 20px 0 8px; font-size: 14px; }
+input, select, textarea { width: 100%; min-width: 0; padding: 12px; border: 1px solid #aaa; border-radius: 4px; background: #fff; font-size: 16px; }
+textarea { resize: vertical; }
+form > button { width: 100%; margin-top: 20px; }
+details { margin-top: 16px; }
+summary { display: flex; align-items: center; min-height: 44px; font-size: 14px; cursor: pointer; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "+"; width: 20px; }
+details[open] > summary::before { content: "−"; }
+.settings-actions { display: grid; justify-items: start; margin-top: 20px; padding-top: 12px; border-top: 1px solid #ddd; }
+
+#scan-dialog {
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: max(16px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+}
+#scan-dialog > .close-button { display: flex; margin-left: auto; }
+.scan-content { min-height: calc(100% - 48px); max-width: 850px; margin: auto; display: flex; flex-direction: column; justify-content: center; gap: 32px; text-align: center; }
+noscript { padding: 20px; }
+
+@media (max-height: 500px) {
+  main { padding-block: 16px; }
+  .barcode-area { min-height: 120px; margin-block: 8px; }
+  .actions { margin-top: 16px; }
+}

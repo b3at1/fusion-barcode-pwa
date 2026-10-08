@@ -1,0 +1,13 @@
+{
+  "name": "rec-code-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A user-hosted, device-owned FusionGo barcode viewer",
+  "engines": { "node": "22.x" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/all.test.js",
+    "test:browser": "python3 tests/browser_smoke.py"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+.vercel/
+.venv/
+.env
+.env.*
+!.env.example
+coverage/
+test-results/
+__pycache__/
+*.pyc
+credentials.json
+fusiontoken-*.json
+.DS_Store
+
