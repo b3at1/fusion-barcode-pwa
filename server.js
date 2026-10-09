@@ -2,6 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { createHmac, randomBytes } from 'node:crypto';
 import { ApiError, validateSchoolId, validateToken, parseUpstream, boundedText } from './public/lib/response.js';
 
 const PUBLIC = fileURLToPath(new URL('./public/', import.meta.url));
@@ -20,20 +21,28 @@ export const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  'Strict-Transport-Security': 'max-age=31536000',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), screen-wake-lock=(self)',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; script-src-attr 'none'; style-src 'self'; style-src-attr 'none'; img-src 'self' blob: data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
 };
 
 function send(res, status, body, type = 'application/json; charset=utf-8', method = '') {
-  res.writeHead(status, { ...SECURITY_HEADERS, 'Cache-Control': 'no-store', 'Content-Type': type });
+  res.writeHead(status, { ...SECURITY_HEADERS, 'Cache-Control': 'no-store', 'Content-Type': type,
+    ...(status === 429 ? { 'Retry-After': '60' } : {}) });
   res.end(method === 'HEAD' ? undefined : typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
 
-function sameOrigin(req) {
-  if (req.headers['sec-fetch-site'] === 'cross-site') return false;
-  if (!req.headers.origin) return true;
+function sameOrigin(req, requireEvidence = false) {
+  const site = req.headers['sec-fetch-site'];
+  // Sibling subdomains are not trusted. Older browsers may instead supply Origin.
+  if (site && site !== 'same-origin' && !(site === 'none' && !requireEvidence)) return false;
+  if (!req.headers.origin) return !requireEvidence || site === 'same-origin';
   try {
     const origin = new URL(req.headers.origin);
-    return ['http:', 'https:'].includes(origin.protocol) && origin.host === req.headers.host &&
+    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname);
+    return (origin.protocol === 'https:' || (origin.protocol === 'http:' && loopback)) && origin.host === req.headers.host &&
       !origin.username && !origin.password && origin.pathname === '/' && !origin.search && !origin.hash;
   } catch { return false; }
 }
@@ -49,17 +58,40 @@ async function readInput(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new ApiError('invalid_input'); }
 }
 
-export function createHandler({ fetchImpl = globalThis.fetch, assetReader = readFile } = {}) {
+export function createHandler({ fetchImpl = globalThis.fetch, assetReader = readFile, now = Date.now } = {}) {
+  // Best-effort limits per handler instance, not a distributed firewall. Retain
+  // only ephemeral keyed fingerprints, never tokens or untrusted proxy/IP headers.
+  const fingerprintKey = randomBytes(32);
+  const attempts = new Map();
+  let windowStart = now();
+  let total = 0;
+  let active = 0;
+  function admit(token) {
+    const time = now();
+    if (time - windowStart >= 60000) {
+      attempts.clear(); total = 0; windowStart = time;
+    }
+    if (total >= 120 || active >= 8) return false;
+    const key = createHmac('sha256', fingerprintKey).update(token).digest('hex');
+    const count = attempts.get(key) || 0;
+    if (count >= 12) return false;
+    attempts.set(key, count + 1); total++; active++;
+    return true;
+  }
   return async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname.startsWith('/api/')) {
-        if (!sameOrigin(req)) return send(res, 403, { error: 'invalid_input' });
+        if (!sameOrigin(req, url.pathname === '/api/barcode')) return send(res, 403, { error: 'invalid_input' });
         if (url.pathname === '/api/health' && req.method === 'GET') {
           return send(res, 200, { service: 'my-barcode', relay: true });
         }
         if (url.pathname !== '/api/barcode') return send(res, 404, { error: 'invalid_input' });
         if (req.method !== 'POST') return send(res, 405, { error: 'invalid_input' });
+        if ((req.headers['sec-fetch-mode'] && !['cors', 'same-origin'].includes(req.headers['sec-fetch-mode'])) ||
+            (req.headers['sec-fetch-dest'] && req.headers['sec-fetch-dest'] !== 'empty')) {
+          return send(res, 403, { error: 'invalid_input' });
+        }
         if (url.search) return send(res, 400, { error: 'invalid_input' });
         if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) {
           return send(res, 415, { error: 'invalid_input' });
@@ -72,12 +104,15 @@ export function createHandler({ fetchImpl = globalThis.fetch, assetReader = read
           throw new ApiError('invalid_input');
         }
         const schoolId = validateSchoolId(input.schoolId);
-        const response = await fetchImpl(`${UPSTREAM}?id=${schoolId}`, {
-          method: 'GET', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'FusionGo' },
-          redirect: 'error', signal: AbortSignal.timeout(18000),
-        });
-        const barcode = parseUpstream(response.status, await boundedText(response));
-        return send(res, 200, { schoolId, barcode });
+        if (!admit(token)) return send(res, 429, { error: 'rate_limited' });
+        try {
+          const response = await fetchImpl(`${UPSTREAM}?id=${schoolId}`, {
+            method: 'GET', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'FusionGo' },
+            redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(18000),
+          });
+          const barcode = parseUpstream(response.status, await boundedText(response));
+          return send(res, 200, { schoolId, barcode });
+        } finally { active--; }
       }
       const asset = ASSETS.get(url.pathname);
       if (!asset) return send(res, 404, 'Not found', 'text/plain; charset=utf-8', req.method);

@@ -9,6 +9,8 @@ from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "public"
+SECURITY_HEADERS = {item["key"]: item["value"] for item in
+                    json.loads((ROOT / "vercel.json").read_text())["headers"][0]["headers"]}
 TOKEN = "synthetic-browser-smoke-token"
 BARCODE = "&0000123456789&"
 
@@ -23,28 +25,37 @@ def main():
         def respond(route):
             request = route.request
             pathname = urlsplit(request.url).path
+            def fulfill(**kwargs):
+                headers = dict(SECURITY_HEADERS)
+                if pathname.startswith("/api/"):
+                    headers["Cache-Control"] = "no-store"
+                route.fulfill(headers=headers, **kwargs)
             if pathname == "/api/health":
-                route.fulfill(json={"service": "my-barcode", "relay": True})
+                fulfill(json={"service": "my-barcode", "relay": True})
             elif pathname == "/api/barcode":
                 state["calls"] += 1
                 assert TOKEN not in request.url
                 assert request.headers.get("authorization") == "Bearer " + TOKEN
                 if state["mode"] == "auth":
-                    route.fulfill(status=401, json={"error": "authentication_required"})
+                    fulfill(status=401, json={"error": "authentication_required"})
                 elif state["mode"] == "outage":
-                    route.fulfill(status=503, json={"error": "service_unavailable"})
+                    fulfill(status=503, json={"error": "service_unavailable"})
                 else:
-                    route.fulfill(json={"schoolId": json.loads(request.post_data)["schoolId"], "barcode": BARCODE})
+                    fulfill(json={"schoolId": json.loads(request.post_data)["schoolId"], "barcode": BARCODE})
             else:
                 file = PUBLIC / ("index.html" if pathname == "/" else pathname.lstrip("/"))
                 if file.is_file() and file.resolve().is_relative_to(PUBLIC):
                     content_type = "text/javascript" if file.suffix == ".js" else mimetypes.guess_type(file.name)[0] or "application/octet-stream"
-                    route.fulfill(body=file.read_bytes(), content_type=content_type)
+                    fulfill(body=file.read_bytes(), content_type=content_type)
                 else:
-                    route.fulfill(status=404, body="Not found")
+                    fulfill(status=404, body="Not found")
 
         context.route("https://my-barcode.test/**", respond)
         page = context.new_page()
+        page.add_init_script("""window.policyViolations = [];
+            document.addEventListener('securitypolicyviolation', event => {
+                window.policyViolations.push(event.effectiveDirective);
+            });""")
         page_errors = []
         page.on("pageerror", lambda error: page_errors.append(str(error)))
         page.goto("https://my-barcode.test/")
@@ -92,6 +103,7 @@ def main():
         expect(page.locator("#barcode-slot")).not_to_be_visible()
         assert state["calls"] == 4
         assert not page_errors
+        assert page.evaluate("window.policyViolations") == []
         browser.close()
         print("Browser smoke checks passed; synthetic preview: test-results/mobile.png")
 

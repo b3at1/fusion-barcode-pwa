@@ -31,6 +31,7 @@ test('relay uses only the fixed upstream with bounded institution ID and bearer 
   assert.equal(calls[0][1].headers.Authorization, 'Bearer ' + TOKEN);
   assert.equal(calls[0][1].headers.Cookie, undefined);
   assert.equal(calls[0][1].redirect, 'error');
+  assert.equal(calls[0][1].cache, 'no-store');
   assert.equal(result.headers['Cache-Control'], 'no-store');
   assert.equal(result.headers['Referrer-Policy'], 'no-referrer');
   assert.match(result.headers['Content-Security-Policy'], /script-src 'self'/);
@@ -44,6 +45,15 @@ test('cross-origin, missing auth, bad IDs, arbitrary targets and oversized input
   const cases = [
     { headers: { origin: 'https://other.example' } },
     { headers: { 'sec-fetch-site': 'cross-site' } },
+    { headers: { 'sec-fetch-site': 'same-site' } },
+    { headers: { origin: undefined } },
+    { headers: { origin: 'null' } },
+    { headers: { origin: 'http://own.example' } },
+    { headers: { origin: 'https://own.example:444' } },
+    { headers: { origin: 'https://own.example.attacker.example' } },
+    { headers: { origin: undefined, 'sec-fetch-site': 'none' } },
+    { headers: { 'sec-fetch-mode': 'navigate' } },
+    { headers: { 'sec-fetch-dest': 'iframe' } },
     { headers: { authorization: '' } },
     { body: '{"schoolId":"107&url=https://other.example"}' },
     { body: '{"schoolId":"107","url":"https://other.example"}' },
@@ -57,6 +67,63 @@ test('cross-origin, missing auth, bad IDs, arbitrary targets and oversized input
     assert.ok(!result.body.includes(TOKEN));
   }
   assert.equal(calls, 0);
+});
+
+test('same-origin metadata and loopback development work without widening CORS', async () => {
+  const handler = createHandler({ fetchImpl: async () => Response.json([{ AppBarcodeIdNumber: BARCODE }]) });
+  for (const headers of [
+    { origin: undefined, 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' },
+    { origin: 'http://127.0.0.1:4173', host: '127.0.0.1:4173' },
+    { origin: 'http://localhost:4173', host: 'localhost:4173' },
+    { origin: 'http://[::1]:4173', host: '[::1]:4173' },
+  ]) {
+    const result = await request(handler, { headers });
+    assert.equal(result.status, 200);
+    assert.equal(result.headers['Access-Control-Allow-Origin'], undefined);
+  }
+  const health = await request(handler, { url: '/api/health', method: 'GET', headers: { origin: undefined, authorization: '' } });
+  assert.equal(health.status, 200);
+});
+
+test('relay limits repeated credentials, resets the window, and does not reveal them', async () => {
+  let time = 0;
+  let calls = 0;
+  const handler = createHandler({ now: () => time, fetchImpl: async () => {
+    calls++;
+    return Response.json([{ AppBarcodeIdNumber: BARCODE }]);
+  } });
+  for (let i = 0; i < 12; i++) assert.equal((await request(handler)).status, 200);
+  const limited = await request(handler);
+  assert.equal(limited.status, 429);
+  assert.deepEqual(JSON.parse(limited.body), { error: 'rate_limited' });
+  assert.equal(limited.headers['Cache-Control'], 'no-store');
+  assert.equal(limited.headers['Retry-After'], '60');
+  assert.ok(!limited.body.includes(TOKEN));
+  assert.equal(calls, 12);
+  // A different credential still works; health checks do not consume capacity.
+  assert.equal((await request(handler, { headers: { authorization: 'Bearer synthetic-other-token' } })).status, 200);
+  assert.equal((await request(handler, { url: '/api/health', method: 'GET' })).status, 200);
+  time = 60000;
+  assert.equal((await request(handler)).status, 200);
+});
+
+test('aggregate limits bound rotating credentials and concurrency slots recover after errors', async () => {
+  const handler = createHandler({ fetchImpl: async () => Response.json([{ AppBarcodeIdNumber: BARCODE }]) });
+  for (let i = 0; i < 120; i++) {
+    assert.equal((await request(handler, { headers: { authorization: `Bearer synthetic-rotating-${i}` } })).status, 200);
+  }
+  assert.equal((await request(handler)).status, 429);
+
+  let release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const concurrent = createHandler({ fetchImpl: async () => { await blocked; throw Error('synthetic transport failure'); } });
+  const pending = Array.from({ length: 8 }, () => request(concurrent));
+  // These requests admit before fetch and keep their slots until its body/error completes.
+  const ninth = await request(concurrent);
+  assert.equal(ninth.status, 429);
+  release();
+  for (const result of await Promise.all(pending)) assert.equal(result.status, 503);
+  assert.equal((await request(concurrent)).status, 503);
 });
 
 test('expired tokens, backend failures and stack traces become generic responses', async () => {
